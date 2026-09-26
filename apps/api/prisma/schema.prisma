@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───── Enums ─────
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum ModelStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SessionStatus {
+  PENDING
+  LIVE
+  ENDED
+}
+
+enum ParticipantStatus {
+  ACTIVE
+  LEFT
+  REMOVED
+  MUTED
+}
+
+// ───── User ─────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  sessionsHosted Session[]      @relation("TeacherSessions")
+  participations Participant[]
+  chatMessages   ChatMessage[]
+  modelsCreated  ThreeDModel[]  @relation("ModelCreator")
+  attendances    Attendance[]
+
+  @@map("users")
+}
+
+// ───── 3D Model ─────
+
+model ThreeDModel {
+  id           String      @id @default(uuid())
+  name         String
+  description  String      @default("")
+  category     String      @default("")
+  tags         String[]    @default([])
+  version      Int         @default(1)
+  fileUrl      String
+  thumbnailUrl String?
+  fileSize     Int         @default(0)
+  status       ModelStatus @default(DRAFT)
+  createdById  String
+  createdBy    User        @relation("ModelCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  sessions Session[]
+
+  @@map("three_d_models")
+}
+
+// ───── Session ─────
+
+model Session {
+  id        String        @id @default(uuid())
+  code      String        @unique
+  title     String
+  status    SessionStatus @default(PENDING)
+  teacherId String
+  teacher   User          @relation("TeacherSessions", fields: [teacherId], references: [id], onDelete: Cascade)
+  modelId   String
+  model     ThreeDModel   @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  // Authoritative 3D transform state (persisted periodically from in-memory)
+  rotationX           Float   @default(0)
+  rotationY           Float   @default(0)
+  zoom                Float   @default(1)
+  selectedMeshName    String?
+  highlightedMeshName String?
+
+  // Classroom settings
+  isLocked Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  startedAt DateTime?
+  endedAt   DateTime?
+  updatedAt DateTime  @updatedAt
+
+  participants Participant[]
+  chatMessages ChatMessage[]
+  attendances  Attendance[]
+
+  @@map("sessions")
+}
+
+// ───── Participant ─────
+
+model Participant {
+  id        String            @id @default(uuid())
+  sessionId String
+  userId    String
+  status    ParticipantStatus @default(ACTIVE)
+  joinedAt  DateTime          @default(now())
+  leftAt    DateTime?
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@map("participants")
+}
+
+// ───── Chat Message ─────
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  senderId  String
+  message   String
+  createdAt DateTime @default(now())
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sender  User    @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@map("chat_messages")
+}
+
+// ───── Attendance ─────
+
+model Attendance {
+  id        String    @id @default(uuid())
+  sessionId String
+  studentId String
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+  duration  Int       @default(0) // seconds
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student User    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, studentId])
+  @@map("attendances")
+}
